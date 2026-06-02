@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>NoiseMap · Admin</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%2334d399'/%3E%3Cstop offset='1' stop-color='%23047857'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M256 36C156 36 76 116 76 216 76 332 220 446 248 470a12 12 0 0 0 16 0C292 446 436 332 436 216 436 116 356 36 256 36Z'/%3E%3Cg transform='translate(256 138)'%3E%3Cpath d='M-42 0C-25 -24 25 -24 42 0 25 24 -25 24 -42 0Z' fill='%23ecfdf5'/%3E%3Ccircle r='13' fill='%23065f46'/%3E%3C/g%3E%3Cg stroke='%23ecfdf5' stroke-width='16' stroke-linecap='round'%3E%3Cline x1='177' y1='216' x2='177' y2='264'/%3E%3Cline x1='206' y1='198' x2='206' y2='282'/%3E%3Cline x1='232' y1='180' x2='232' y2='300'/%3E%3Cline x1='256' y1='164' x2='256' y2='316'/%3E%3Cline x1='280' y1='188' x2='280' y2='292'/%3E%3Cline x1='306' y1='204' x2='306' y2='276'/%3E%3Cline x1='335' y1='220' x2='335' y2='260'/%3E%3C/g%3E%3C/svg%3E" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
@@ -68,7 +69,7 @@ function makeApi(baseUrl, token, onUnauthorized) {
     cityStats: () => req("/api/v1/stats/city"),
     listUsers: (page=0,size=20) => req(`/api/v1/admin/users?page=${page}&size=${size}`),
     changeRole: (userId,role) => req(`/api/v1/admin/users/${userId}/role`,{method:"PUT",body:JSON.stringify({role})}),
-    setActive: (userId,active) => req(`/api/v1/admin/users/${userId}/active`,{method:"PUT",body:JSON.stringify({active})}),
+    setActive: (userId,active,reason,durationHours) => req(`/api/v1/admin/users/${userId}/active`,{method:"PUT",body:JSON.stringify({active,reason,durationHours})}),
     modQueue: (page=0,size=20) => req(`/api/v1/moderation/queue?page=${page}&size=${size}`),
     modReview: (id,decision,comment) => req(`/api/v1/moderation/queue/${id}/review`,{method:"PUT",body:JSON.stringify({decision,comment})}),
     modStats: () => req("/api/v1/moderation/stats"),
@@ -91,6 +92,26 @@ const Badge = ({children,tone="muted"}) => {
   return <span className={"mono text-[11px] px-2 py-0.5 rounded border "+(map[tone]||map.muted)}>{children}</span>;
 };
 const Card = ({children,className=""}) => <div className={"rounded-xl border border-[var(--line)] bg-[var(--panel)] "+className}>{children}</div>;
+const Logo = ({size=32}) => (
+  <svg width={size} height={size} viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="logoGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#34d399"/><stop offset="55%" stopColor="#10b981"/><stop offset="100%" stopColor="#047857"/>
+      </linearGradient>
+    </defs>
+    <path fill="url(#logoGrad)" d="M256 36C156 36 76 116 76 216 76 332 220 446 248 470a12 12 0 0 0 16 0C292 446 436 332 436 216 436 116 356 36 256 36Z"/>
+    <g transform="translate(256 138)">
+      <path d="M-42 0C-25 -24 25 -24 42 0 25 24 -25 24 -42 0Z" fill="#ecfdf5" opacity="0.95"/>
+      <circle r="13" fill="#065f46"/><circle cx="-4" cy="-4" r="4.5" fill="#ecfdf5"/>
+    </g>
+    <g stroke="#ecfdf5" strokeWidth="16" strokeLinecap="round" fill="none">
+      <line x1="177" y1="216" x2="177" y2="264"/><line x1="206" y1="198" x2="206" y2="282"/>
+      <line x1="232" y1="180" x2="232" y2="300"/><line x1="256" y1="164" x2="256" y2="316"/>
+      <line x1="280" y1="188" x2="280" y2="292"/><line x1="306" y1="204" x2="306" y2="276"/>
+      <line x1="335" y1="220" x2="335" y2="260"/>
+    </g>
+  </svg>
+);
 const Btn = ({children,onClick,tone="default",disabled,size="md"}) => {
   const tones = { default:"bg-[#21262d] hover:bg-[#2d333b] text-[var(--text)] border-[var(--line)]",
     accent:"bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500",
@@ -131,8 +152,8 @@ function Login({ onLogin }) {
       <div className="absolute inset-0 opacity-30" style={{background:"radial-gradient(600px circle at 30% 20%, rgba(63,185,80,.15), transparent 60%), radial-gradient(500px circle at 70% 80%, rgba(88,166,255,.12), transparent 55%)"}}/>
       <Card className="w-full max-w-md p-8 relative fade">
         <div className="flex items-center gap-3 mb-1">
-          <div className="h-9 w-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-            <span className="text-emerald-400 text-lg">◈</span>
+          <div className="h-9 w-9 rounded-lg bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center overflow-hidden">
+            <Logo size={26} />
           </div>
           <div>
             <div className="font-extrabold text-lg tracking-tight">NoiseMap</div>
@@ -213,10 +234,33 @@ function Users({ api, me, toast }) {
     try { await api.changeRole(u.id,role); toast("Роль обновлена: "+role); load(page); }
     catch(e){ toast(e.message,"error"); }
   };
-  const onActive = async (u) => {
+
+  // banTarget — пользователь, для которого открыта модалка блокировки
+  const [banTarget,setBanTarget] = useState(null);
+  const [banReason,setBanReason] = useState("");
+  const [banHours,setBanHours] = useState(0); // 0 = навсегда
+
+  const openBan = (u) => {
     if (u.id===me.sub) return toast("Нельзя блокировать себя","error");
-    try { await api.setActive(u.id,!u.active); toast(u.active?"Заблокирован":"Разблокирован"); load(page); }
+    setBanTarget(u); setBanReason(""); setBanHours(0);
+  };
+  const confirmBan = async () => {
+    try {
+      await api.setActive(banTarget.id, false, banReason, banHours>0?banHours:null);
+      toast("Пользователь заблокирован");
+      setBanTarget(null); load(page);
+    } catch(e){ toast(e.message,"error"); }
+  };
+  const unblock = async (u) => {
+    if (u.id===me.sub) return;
+    try { await api.setActive(u.id, true, null, null); toast("Разблокирован"); load(page); }
     catch(e){ toast(e.message,"error"); }
+  };
+
+  const fmtUntil = (iso) => {
+    if (!iso) return "навсегда";
+    const d = new Date(iso);
+    return d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
   };
 
   const rows = (data?.content||[]).filter(u =>
@@ -256,7 +300,15 @@ function Users({ api, me, toast }) {
                   {u.id===me.sub && <Badge tone="ok">вы</Badge>}
                 </td>
                 <td className="px-4 py-3"><Badge tone={u.role==="ADMIN"?"admin":u.role==="MODERATOR"?"moderator":"user"}>{u.role}</Badge></td>
-                <td className="px-4 py-3">{u.active!==false ? <Badge tone="ok">активен</Badge> : <Badge tone="bad">заблокирован</Badge>}</td>
+                <td className="px-4 py-3">
+                  {u.active!==false ? <Badge tone="ok">активен</Badge> : (
+                    <div className="space-y-1">
+                      <Badge tone="bad">заблокирован</Badge>
+                      <div className="text-[11px] text-[var(--muted)]">до: {fmtUntil(u.blockedUntil)}</div>
+                      {u.blockReason && <div className="text-[11px] text-rose-300/80 max-w-[180px] truncate" title={u.blockReason}>«{u.blockReason}»</div>}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3 mono text-[11px] text-[var(--muted)] hidden md:table-cell">{u.createdAt?u.createdAt.slice(0,10):"—"}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1.5 justify-end flex-wrap">
@@ -269,9 +321,9 @@ function Users({ api, me, toast }) {
                       </select>
                     )}
                     {isAdmin && u.id!==me.sub && (
-                      <Btn size="sm" tone={u.active!==false?"danger":"accent"} onClick={()=>onActive(u)}>
-                        {u.active!==false?"Заблокировать":"Разблокировать"}
-                      </Btn>
+                      u.active!==false
+                        ? <Btn size="sm" tone="danger" onClick={()=>openBan(u)}>Заблокировать</Btn>
+                        : <Btn size="sm" tone="accent" onClick={()=>unblock(u)}>Разблокировать</Btn>
                     )}
                     {(!isAdmin || u.id===me.sub) && <span className="text-xs text-[var(--muted)]">—</span>}
                   </div>
@@ -288,6 +340,36 @@ function Users({ api, me, toast }) {
             <Btn size="sm" disabled={page<=0} onClick={()=>setPage(p=>p-1)}>← Назад</Btn>
             <Btn size="sm" disabled={page+1>=(data.totalPages||1)} onClick={()=>setPage(p=>p+1)}>Вперёд →</Btn>
           </div>
+        </div>
+      )}
+
+      {banTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={()=>setBanTarget(null)}>
+          <Card className="w-full max-w-md p-6 fade" onClick={e=>e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-1">Блокировка пользователя</h3>
+            <p className="text-sm text-[var(--muted)] mb-4">{banTarget.displayName} · {banTarget.email}</p>
+
+            <label className="block text-xs text-[var(--muted)] mb-1">Причина</label>
+            <textarea value={banReason} onChange={e=>setBanReason(e.target.value)} rows="3" maxLength="500"
+              placeholder="Например: спам, оскорбления, накрутка…"
+              className="w-full mb-4 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none resize-none" />
+
+            <label className="block text-xs text-[var(--muted)] mb-1">Срок</label>
+            <div className="grid grid-cols-4 gap-2 mb-5">
+              {[{h:1,l:"1 час"},{h:24,l:"1 сутки"},{h:168,l:"7 дней"},{h:0,l:"Навсегда"}].map(o=>(
+                <button key={o.h} onClick={()=>setBanHours(o.h)}
+                  className={"rounded-lg border px-2 py-2 text-xs font-semibold transition "+
+                    (banHours===o.h?"bg-rose-600/90 text-white border-rose-500":"bg-[#21262d] text-[var(--muted)] border-[var(--line)] hover:bg-[#2d333b]")}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Btn tone="ghost" onClick={()=>setBanTarget(null)}>Отмена</Btn>
+              <Btn tone="danger" onClick={confirmBan}>Заблокировать</Btn>
+            </div>
+          </Card>
         </div>
       )}
     </div>
@@ -505,7 +587,7 @@ function App() {
       {/* sidebar */}
       <aside className="w-60 shrink-0 border-r border-[var(--line)] bg-[var(--panel)] flex flex-col">
         <div className="p-5 border-b border-[var(--line)] flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">◈</div>
+          <div className="h-8 w-8 rounded-lg bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center overflow-hidden"><Logo size={22} /></div>
           <div>
             <div className="font-extrabold tracking-tight leading-none">NoiseMap</div>
             <div className="mono text-[10px] text-[var(--muted)] mt-0.5">admin console</div>
