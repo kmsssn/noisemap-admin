@@ -20,21 +20,20 @@
   ::-webkit-scrollbar-track{background:transparent}
   .fade{animation:f .35s ease}
   @keyframes f{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-  input,select{color-scheme:dark}
+  input,select,textarea{color-scheme:dark}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useMemo } = React;
-
-// ---------- config ----------
-// Панель живёт на поддомене admin-noisemap.duckdns.org,
-// а API — на основном домене noisemap.duckdns.org.
-// Это разные origin → на gateway включён CORS для этого поддомена.
 const API_BASE = "https://noisemap.duckdns.org";
 
-// ---------- jwt helper ----------
+const TOKEN_KEY = "noisemap_admin_token";
+const saveToken = (t) => { try { localStorage.setItem(TOKEN_KEY, t); } catch {} };
+const loadToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } };
+const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch {} };
+
 function decodeJwt(token) {
   try {
     const p = token.split(".")[1];
@@ -42,6 +41,11 @@ function decodeJwt(token) {
       .split("").map(c => "%" + ("00"+c.charCodeAt(0).toString(16)).slice(-2)).join(""));
     return JSON.parse(json);
   } catch { return null; }
+}
+// Проверка, не истёк ли токен (exp в секундах).
+function isExpired(claims) {
+  if (!claims || !claims.exp) return true;
+  return claims.exp * 1000 < Date.now();
 }
 
 // ---------- api layer ----------
@@ -91,7 +95,7 @@ const Badge = ({children,tone="muted"}) => {
     muted:"bg-slate-500/10 text-slate-400 border-slate-600/40" };
   return <span className={"mono text-[11px] px-2 py-0.5 rounded border "+(map[tone]||map.muted)}>{children}</span>;
 };
-const Card = ({children,className=""}) => <div className={"rounded-xl border border-[var(--line)] bg-[var(--panel)] "+className}>{children}</div>;
+const Card = ({children,className="",onClick}) => <div onClick={onClick} className={"rounded-xl border border-[var(--line)] bg-[var(--panel)] "+className}>{children}</div>;
 const Logo = ({size=32}) => (
   <svg width={size} height={size} viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -174,7 +178,6 @@ function Login({ onLogin }) {
 
         {err && <div className="mb-4 text-sm rounded-lg border border-rose-700 bg-rose-950/60 px-3 py-2 text-rose-200">{err}</div>}
         <Btn tone="accent" onClick={submit} disabled={busy || !email || !password}>{busy?"Вход…":"Войти"}</Btn>
-        <div className="mono text-[10px] text-[var(--muted)] mt-4 text-center">API: noisemap.duckdns.org</div>
       </Card>
     </div>
   );
@@ -222,6 +225,10 @@ function Users({ api, me, toast }) {
   const [loading,setLoading] = useState(true);
   const [q,setQ] = useState("");
 
+  const [banTarget,setBanTarget] = useState(null);
+  const [banReason,setBanReason] = useState("");
+  const [banHours,setBanHours] = useState(0); // 0 = навсегда
+
   const load = useCallback(async (p)=>{
     setLoading(true);
     try { setData(await api.listUsers(p,20)); }
@@ -233,17 +240,12 @@ function Users({ api, me, toast }) {
     if (u.id===me.sub) return toast("Нельзя менять свою роль","error");
     if (role===u.role) return;
     if (!window.confirm(`Сменить роль «${u.displayName||u.email}» с ${u.role} на ${role}?`)) {
-      load(page); 
+      load(page); // вернуть select в исходное значение
       return;
     }
     try { await api.changeRole(u.id,role); toast("Роль обновлена: "+role); load(page); }
     catch(e){ toast(e.message,"error"); load(page); }
   };
-
-  // banTarget — пользователь, для которого открыта модалка блокировки
-  const [banTarget,setBanTarget] = useState(null);
-  const [banReason,setBanReason] = useState("");
-  const [banHours,setBanHours] = useState(0); // 0 = навсегда
 
   const openBan = (u) => {
     if (u.id===me.sub) return toast("Нельзя блокировать себя","error");
@@ -350,7 +352,7 @@ function Users({ api, me, toast }) {
 
       {banTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-          <Card className="w-full max-w-md p-6 fade" onClick={e=>e.stopPropagation()}>
+          <Card className="w-full max-w-md p-6 fade">
             <h3 className="text-lg font-bold mb-1">Блокировка пользователя</h3>
             <p className="text-sm text-[var(--muted)] mb-4">{banTarget.displayName} · {banTarget.email}</p>
 
@@ -564,8 +566,18 @@ function Comments({ api, toast }) {
 
 // ---------- shell ----------
 function App() {
-  const [token,setToken] = useState(null);
-  const [me,setMe] = useState(null);
+  // Восстанавливаем сессию из localStorage при загрузке (переживает F5).
+  const [token,setToken] = useState(() => {
+    const t = loadToken();
+    if (t && !isExpired(decodeJwt(t))) return t;
+    clearToken();
+    return null;
+  });
+  const [me,setMe] = useState(() => {
+    const t = loadToken();
+    const c = t ? decodeJwt(t) : null;
+    return (c && !isExpired(c)) ? c : null;
+  });
   const [tab,setTab] = useState("dash");
   const [toastState,setToastState] = useState({msg:"",tone:""});
 
@@ -574,10 +586,11 @@ function App() {
     setTimeout(()=>setToastState({msg:"",tone:""}),3500);
   },[]);
 
-  const logout = useCallback(()=>{ setToken(null); setMe(null); setTab("dash"); },[]);
+  const doLogin = useCallback((t,c)=>{ saveToken(t); setToken(t); setMe(c); },[]);
+  const logout = useCallback(()=>{ clearToken(); setToken(null); setMe(null); setTab("dash"); },[]);
   const api = useMemo(()=> token ? makeApi(API_BASE, token, logout) : null, [token,logout]);
 
-  if (!token) return <Login onLogin={(t,c)=>{setToken(t);setMe(c);}} />;
+  if (!token) return <Login onLogin={doLogin} />;
 
   const isAdmin = me.role==="ADMIN";
   const tabs = [
