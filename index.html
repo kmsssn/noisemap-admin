@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NoiseMap · Admin</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#272e3a; --accent:#3fb950; --accent2:#58a6ff; --text:#e6edf3; --muted:#8b949e; }
+  body { font-family:'Manrope',system-ui,sans-serif; background:var(--bg); color:var(--text); margin:0; }
+  .mono { font-family:'Space Mono',monospace; }
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#30363d;border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  .fade{animation:f .35s ease}
+  @keyframes f{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  input,select{color-scheme:dark}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useMemo } = React;
+
+// ---------- config ----------
+// Панель живёт на поддомене admin-noisemap.duckdns.org,
+// а API — на основном домене noisemap.duckdns.org.
+// Это разные origin → на gateway включён CORS для этого поддомена.
+const API_BASE = "https://noisemap.duckdns.org";
+
+// ---------- jwt helper ----------
+function decodeJwt(token) {
+  try {
+    const p = token.split(".")[1];
+    const json = decodeURIComponent(atob(p.replace(/-/g,"+").replace(/_/g,"/"))
+      .split("").map(c => "%" + ("00"+c.charCodeAt(0).toString(16)).slice(-2)).join(""));
+    return JSON.parse(json);
+  } catch { return null; }
+}
+
+// ---------- api layer ----------
+function makeApi(baseUrl, token, onUnauthorized) {
+  const req = async (path, opts={}) => {
+    const headers = { "Content-Type":"application/json", ...(opts.headers||{}) };
+    if (token) headers["Authorization"] = "Bearer " + token;
+    let res;
+    try {
+      res = await fetch(baseUrl + path, { ...opts, headers });
+    } catch (e) {
+      throw new Error("Сеть/CORS: не удалось связаться с " + baseUrl + ". " + e.message);
+    }
+    if (res.status === 401) { onUnauthorized && onUnauthorized(); throw new Error("401 — сессия истекла, войдите заново"); }
+    const text = await res.text();
+    const data = text ? (()=>{ try { return JSON.parse(text); } catch { return text; } })() : null;
+    if (!res.ok) {
+      const msg = (data && data.message) ? data.message : ("HTTP " + res.status);
+      throw new Error(msg);
+    }
+    return data;
+  };
+  return {
+    login: (email,password) => req("/api/v1/auth/login",{method:"POST",body:JSON.stringify({email,password})}),
+    cityStats: () => req("/api/v1/stats/city"),
+    listUsers: (page=0,size=20) => req(`/api/v1/admin/users?page=${page}&size=${size}`),
+    changeRole: (userId,role) => req(`/api/v1/admin/users/${userId}/role`,{method:"PUT",body:JSON.stringify({role})}),
+    setActive: (userId,active) => req(`/api/v1/admin/users/${userId}/active`,{method:"PUT",body:JSON.stringify({active})}),
+    modQueue: (page=0,size=20) => req(`/api/v1/moderation/queue?page=${page}&size=${size}`),
+    modReview: (id,decision,comment) => req(`/api/v1/moderation/queue/${id}/review`,{method:"PUT",body:JSON.stringify({decision,comment})}),
+    modStats: () => req("/api/v1/moderation/stats"),
+    listComments: (page=0,size=20) => req(`/api/v1/comments?page=${page}&size=${size}`),
+    deleteComment: (id) => req(`/api/v1/comments/${id}`,{method:"DELETE"}),
+  };
+}
+
+// ---------- small ui ----------
+const Badge = ({children,tone="muted"}) => {
+  const map = { admin:"bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    moderator:"bg-sky-500/15 text-sky-300 border-sky-500/30",
+    user:"bg-slate-500/15 text-slate-300 border-slate-500/30",
+    ok:"bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    warn:"bg-amber-500/15 text-amber-300 border-amber-500/30",
+    bad:"bg-rose-500/15 text-rose-300 border-rose-500/30",
+    muted:"bg-slate-500/10 text-slate-400 border-slate-600/40" };
+  return <span className={"mono text-[11px] px-2 py-0.5 rounded border "+(map[tone]||map.muted)}>{children}</span>;
+};
+const Card = ({children,className=""}) => <div className={"rounded-xl border border-[var(--line)] bg-[var(--panel)] "+className}>{children}</div>;
+const Btn = ({children,onClick,tone="default",disabled,size="md"}) => {
+  const tones = { default:"bg-[#21262d] hover:bg-[#2d333b] text-[var(--text)] border-[var(--line)]",
+    accent:"bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500",
+    blue:"bg-sky-600 hover:bg-sky-500 text-white border-sky-500",
+    danger:"bg-rose-600/90 hover:bg-rose-500 text-white border-rose-500",
+    ghost:"bg-transparent hover:bg-[#21262d] text-[var(--muted)] border-transparent" };
+  const sz = size==="sm" ? "text-xs px-2.5 py-1" : "text-sm px-3.5 py-2";
+  return <button onClick={onClick} disabled={disabled}
+    className={`rounded-lg border font-semibold transition ${sz} ${tones[tone]} disabled:opacity-40 disabled:cursor-not-allowed`}>{children}</button>;
+};
+const Toast = ({msg,tone}) => !msg ? null :
+  <div className={"fixed bottom-5 right-5 z-50 max-w-sm fade rounded-lg border px-4 py-3 text-sm shadow-xl "+
+    (tone==="error"?"bg-rose-950 border-rose-700 text-rose-100":"bg-emerald-950 border-emerald-700 text-emerald-100")}>{msg}</div>;
+
+// ---------- login ----------
+function Login({ onLogin }) {
+  const [email,setEmail] = useState("");
+  const [password,setPassword] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [err,setErr] = useState("");
+
+  const submit = async () => {
+    setErr(""); setBusy(true);
+    try {
+      const api = makeApi(API_BASE, null);
+      const res = await api.login(email.trim(), password);
+      const claims = decodeJwt(res.accessToken);
+      if (!claims) throw new Error("Не удалось разобрать токен");
+      const role = claims.role;
+      if (role !== "ADMIN" && role !== "MODERATOR")
+        throw new Error("Доступ только для ADMIN или MODERATOR. Ваша роль: " + role);
+      onLogin(res.accessToken, claims);
+    } catch(e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute inset-0 opacity-30" style={{background:"radial-gradient(600px circle at 30% 20%, rgba(63,185,80,.15), transparent 60%), radial-gradient(500px circle at 70% 80%, rgba(88,166,255,.12), transparent 55%)"}}/>
+      <Card className="w-full max-w-md p-8 relative fade">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="h-9 w-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+            <span className="text-emerald-400 text-lg">◈</span>
+          </div>
+          <div>
+            <div className="font-extrabold text-lg tracking-tight">NoiseMap</div>
+            <div className="mono text-[11px] text-[var(--muted)]">admin console</div>
+          </div>
+        </div>
+        <p className="text-sm text-[var(--muted)] mt-3 mb-6">Панель управления. Вход только для модераторов и администраторов.</p>
+
+        <label className="block text-xs text-[var(--muted)] mb-1">Email</label>
+        <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
+          className="w-full mb-4 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none"
+          placeholder="admin@example.com" />
+
+        <label className="block text-xs text-[var(--muted)] mb-1">Пароль</label>
+        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
+          className="w-full mb-5 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none"
+          placeholder="••••••••" />
+
+        {err && <div className="mb-4 text-sm rounded-lg border border-rose-700 bg-rose-950/60 px-3 py-2 text-rose-200">{err}</div>}
+        <Btn tone="accent" onClick={submit} disabled={busy || !email || !password}>{busy?"Вход…":"Войти"}</Btn>
+        <div className="mono text-[10px] text-[var(--muted)] mt-4 text-center">API: noisemap.duckdns.org</div>
+      </Card>
+    </div>
+  );
+}
+
+// ---------- dashboard ----------
+function Dashboard({ api, toast }) {
+  const [city,setCity] = useState(null);
+  const [mod,setMod] = useState(null);
+  const [err,setErr] = useState("");
+  useEffect(()=>{ (async()=>{
+    try { setCity(await api.cityStats()); } catch(e){ setErr(p=>p+" "+e.message); }
+    try { setMod(await api.modStats()); } catch(e){ /* moderator-only ok */ }
+  })(); },[]);
+  const Stat = ({label,value,sub,tone}) => (
+    <Card className="p-5 fade">
+      <div className="text-xs text-[var(--muted)] uppercase tracking-wide">{label}</div>
+      <div className={"mono text-3xl font-bold mt-2 "+(tone||"")}>{value ?? "—"}</div>
+      {sub && <div className="text-xs text-[var(--muted)] mt-1">{sub}</div>}
+    </Card>
+  );
+  return (
+    <div>
+      <h2 className="text-xl font-bold mb-1">Дашборд</h2>
+      <p className="text-sm text-[var(--muted)] mb-6">Сводка по городу и очереди модерации.</p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Stat label="Очередь модерации" value={mod?mod.pending:"—"} sub="ожидают проверки" tone="text-amber-400" />
+        <Stat label="Одобрено сегодня" value={mod?(mod.approvedToday ?? "—"):"—"} tone="text-emerald-400" />
+        <Stat label="Отклонено сегодня" value={mod?(mod.rejectedToday ?? "—"):"—"} tone="text-rose-400" />
+        <Stat label="Бэкенд" value="online" sub="stats/city доступен" tone="text-sky-400" />
+      </div>
+      <Card className="mt-6 p-5">
+        <div className="text-xs text-[var(--muted)] uppercase tracking-wide mb-3">Статистика города (raw)</div>
+        <pre className="mono text-xs text-[var(--muted)] overflow-auto max-h-72">{city?JSON.stringify(city,null,2):"загрузка…"}</pre>
+      </Card>
+      {err && <div className="mt-4 text-sm text-rose-300">{err}</div>}
+    </div>
+  );
+}
+
+// ---------- users ----------
+function Users({ api, me, toast }) {
+  const [page,setPage] = useState(0);
+  const [data,setData] = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [q,setQ] = useState("");
+
+  const load = useCallback(async (p)=>{
+    setLoading(true);
+    try { setData(await api.listUsers(p,20)); }
+    catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
+  },[api]);
+  useEffect(()=>{ load(page); },[page]);
+
+  const onRole = async (u,role) => {
+    if (u.id===me.sub) return toast("Нельзя менять свою роль","error");
+    try { await api.changeRole(u.id,role); toast("Роль обновлена: "+role); load(page); }
+    catch(e){ toast(e.message,"error"); }
+  };
+  const onActive = async (u) => {
+    if (u.id===me.sub) return toast("Нельзя блокировать себя","error");
+    try { await api.setActive(u.id,!u.active); toast(u.active?"Заблокирован":"Разблокирован"); load(page); }
+    catch(e){ toast(e.message,"error"); }
+  };
+
+  const rows = (data?.content||[]).filter(u =>
+    !q || (u.email+u.displayName).toLowerCase().includes(q.toLowerCase()));
+
+  const isAdmin = me.role === "ADMIN";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-xl font-bold">Пользователи</h2>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="поиск по email/имени…"
+          className="rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
+      </div>
+      <p className="text-sm text-[var(--muted)] mb-5">
+        {isAdmin ? "Смена ролей и блокировка доступны." : "Только просмотр — управление доступно ADMIN."}
+      </p>
+      <Card className="overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-[#0d1117] text-[var(--muted)] text-xs uppercase tracking-wide">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium">Пользователь</th>
+              <th className="text-left px-4 py-3 font-medium">Роль</th>
+              <th className="text-left px-4 py-3 font-medium">Статус</th>
+              <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Создан</th>
+              <th className="text-right px-4 py-3 font-medium">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">загрузка…</td></tr>}
+            {!loading && rows.length===0 && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">нет записей</td></tr>}
+            {!loading && rows.map(u=>(
+              <tr key={u.id} className="border-t border-[var(--line)] hover:bg-[#1c2230]">
+                <td className="px-4 py-3">
+                  <div className="font-semibold">{u.displayName||"—"}</div>
+                  <div className="mono text-[11px] text-[var(--muted)]">{u.email}</div>
+                  {u.id===me.sub && <Badge tone="ok">вы</Badge>}
+                </td>
+                <td className="px-4 py-3"><Badge tone={u.role==="ADMIN"?"admin":u.role==="MODERATOR"?"moderator":"user"}>{u.role}</Badge></td>
+                <td className="px-4 py-3">{u.active!==false ? <Badge tone="ok">активен</Badge> : <Badge tone="bad">заблокирован</Badge>}</td>
+                <td className="px-4 py-3 mono text-[11px] text-[var(--muted)] hidden md:table-cell">{u.createdAt?u.createdAt.slice(0,10):"—"}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                    {isAdmin && u.id!==me.sub && (
+                      <select value={u.role} onChange={e=>onRole(u,e.target.value)}
+                        className="rounded-md bg-[#0d1117] border border-[var(--line)] px-2 py-1 text-xs focus:border-emerald-500 outline-none">
+                        <option value="USER">USER</option>
+                        <option value="MODERATOR">MODERATOR</option>
+                        <option value="ADMIN">ADMIN</option>
+                      </select>
+                    )}
+                    {isAdmin && u.id!==me.sub && (
+                      <Btn size="sm" tone={u.active!==false?"danger":"accent"} onClick={()=>onActive(u)}>
+                        {u.active!==false?"Заблокировать":"Разблокировать"}
+                      </Btn>
+                    )}
+                    {(!isAdmin || u.id===me.sub) && <span className="text-xs text-[var(--muted)]">—</span>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      {data && (
+        <div className="flex items-center justify-between mt-4 text-sm text-[var(--muted)]">
+          <span>Всего: {data.totalElements} · стр. {page+1} из {data.totalPages||1}</span>
+          <div className="flex gap-2">
+            <Btn size="sm" disabled={page<=0} onClick={()=>setPage(p=>p-1)}>← Назад</Btn>
+            <Btn size="sm" disabled={page+1>=(data.totalPages||1)} onClick={()=>setPage(p=>p+1)}>Вперёд →</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- moderation ----------
+function Moderation({ api, toast }) {
+  const [page,setPage] = useState(0);
+  const [data,setData] = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [comment,setComment] = useState({});
+
+  const load = useCallback(async (p)=>{
+    setLoading(true);
+    try { setData(await api.modQueue(p,20)); }
+    catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
+  },[api]);
+  useEffect(()=>{ load(page); },[page]);
+
+  const review = async (item,decision) => {
+    try {
+      await api.modReview(item.id, decision, comment[item.id]||"");
+      toast(decision==="approve"?"Запись одобрена":"Запись отклонена");
+      setComment(c=>{ const n={...c}; delete n[item.id]; return n; });
+      load(page);
+    } catch(e){ toast(e.message,"error"); }
+  };
+  const reasonTone = r => r==="out_of_bounds"?"warn":r==="spam_pattern"?"bad":"muted";
+  const rows = data?.content||[];
+
+  return (
+    <div>
+      <h2 className="text-xl font-bold mb-1">Модерация</h2>
+      <p className="text-sm text-[var(--muted)] mb-5">Записи, помеченные автоматическими проверками. Approve / reject с комментарием.</p>
+      <div className="space-y-3">
+        {loading && <Card className="p-8 text-center text-[var(--muted)]">загрузка…</Card>}
+        {!loading && rows.length===0 && <Card className="p-8 text-center text-[var(--muted)]">Очередь пуста 🎉</Card>}
+        {!loading && rows.map(item=>(
+          <Card key={item.id} className="p-4 fade">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <Badge tone={reasonTone(item.reason)}>{item.reason}</Badge>
+                  <Badge tone={item.status==="PENDING"?"warn":item.status==="APPROVED"?"ok":"bad"}>{item.status}</Badge>
+                </div>
+                <div className="text-sm">{item.details||"—"}</div>
+                <div className="mono text-[11px] text-[var(--muted)] mt-1">
+                  recording: {item.recordingId} · user: {item.userId}
+                </div>
+                <div className="mono text-[11px] text-[var(--muted)]">flagged: {item.flaggedAt?item.flaggedAt.replace("T"," ").slice(0,19):"—"}</div>
+              </div>
+              {item.status==="PENDING" && (
+                <div className="flex flex-col gap-2 w-full sm:w-64">
+                  <input value={comment[item.id]||""} onChange={e=>setComment(c=>({...c,[item.id]:e.target.value}))}
+                    placeholder="комментарий (необязательно)"
+                    className="rounded-md bg-[#0d1117] border border-[var(--line)] px-2 py-1.5 text-xs focus:border-emerald-500 outline-none" />
+                  <div className="flex gap-2">
+                    <Btn size="sm" tone="accent" onClick={()=>review(item,"approve")}>Approve</Btn>
+                    <Btn size="sm" tone="danger" onClick={()=>review(item,"reject")}>Reject</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+      {data && (
+        <div className="flex items-center justify-between mt-4 text-sm text-[var(--muted)]">
+          <span>Всего: {data.totalElements} · стр. {page+1} из {data.totalPages||1}</span>
+          <div className="flex gap-2">
+            <Btn size="sm" disabled={page<=0} onClick={()=>setPage(p=>p-1)}>← Назад</Btn>
+            <Btn size="sm" disabled={page+1>=(data.totalPages||1)} onClick={()=>setPage(p=>p+1)}>Вперёд →</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- comments ----------
+function Comments({ api, toast }) {
+  const [page,setPage] = useState(0);
+  const [data,setData] = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [q,setQ] = useState("");
+  const [confirmId,setConfirmId] = useState(null);
+
+  const load = useCallback(async (p)=>{
+    setLoading(true);
+    try { setData(await api.listComments(p,20)); }
+    catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
+  },[api]);
+  useEffect(()=>{ load(page); },[page]);
+
+  const remove = async (c) => {
+    try {
+      await api.deleteComment(c.id);
+      toast("Комментарий скрыт (soft delete)");
+      setConfirmId(null);
+      load(page);
+    } catch(e){ toast(e.message,"error"); }
+  };
+
+  const rows = (data?.content||[]).filter(c =>
+    !q || ((c.text||"")+(c.displayName||"")).toLowerCase().includes(q.toLowerCase()));
+  const classTone = nc => ({transport:"warn",alert:"bad",human:"muted",building_noise:"warn",animals:"ok",others:"muted"}[nc]||"muted");
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-xl font-bold">Комментарии</h2>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="поиск по тексту/автору…"
+          className="rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
+      </div>
+      <p className="text-sm text-[var(--muted)] mb-5">Все комментарии на карте. Удаление = мягкое скрытие (запись остаётся в БД с флагом deleted, пропадает из карты и выборок).</p>
+      <Card className="overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-[#0d1117] text-[var(--muted)] text-xs uppercase tracking-wide">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium">Текст</th>
+              <th className="text-left px-4 py-3 font-medium">Автор</th>
+              <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Координаты</th>
+              <th className="text-left px-4 py-3 font-medium">Шум</th>
+              <th className="text-right px-4 py-3 font-medium">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">загрузка…</td></tr>}
+            {!loading && rows.length===0 && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">нет комментариев</td></tr>}
+            {!loading && rows.map(c=>(
+              <tr key={c.id} className="border-t border-[var(--line)] hover:bg-[#1c2230] align-top">
+                <td className="px-4 py-3 max-w-sm">
+                  <div className="whitespace-pre-wrap break-words">{c.text}</div>
+                  <div className="mono text-[10px] text-[var(--muted)] mt-1">{c.createdAt?c.createdAt.replace("T"," ").slice(0,19):""}</div>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="font-semibold">{c.displayName||"—"}</div>
+                  <div className="mono text-[10px] text-[var(--muted)]">{(c.userId||"").slice(0,8)}…</div>
+                </td>
+                <td className="px-4 py-3 mono text-[11px] text-[var(--muted)] hidden md:table-cell">
+                  {c.latitude!=null?c.latitude.toFixed(4):"—"}, {c.longitude!=null?c.longitude.toFixed(4):"—"}
+                </td>
+                <td className="px-4 py-3">
+                  {c.noiseClass ? <Badge tone={classTone(c.noiseClass)}>{c.noiseClass}</Badge> : <span className="text-xs text-[var(--muted)]">—</span>}
+                  {c.noiseLevelDba!=null && <div className="mono text-[10px] text-[var(--muted)] mt-1">{c.noiseLevelDba} dBA</div>}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {confirmId===c.id ? (
+                    <div className="flex gap-1.5 justify-end">
+                      <Btn size="sm" tone="danger" onClick={()=>remove(c)}>Точно скрыть</Btn>
+                      <Btn size="sm" tone="ghost" onClick={()=>setConfirmId(null)}>Отмена</Btn>
+                    </div>
+                  ) : (
+                    <Btn size="sm" tone="danger" onClick={()=>setConfirmId(c.id)}>Скрыть</Btn>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      {data && (
+        <div className="flex items-center justify-between mt-4 text-sm text-[var(--muted)]">
+          <span>Всего: {data.totalElements} · стр. {page+1} из {data.totalPages||1}</span>
+          <div className="flex gap-2">
+            <Btn size="sm" disabled={page<=0} onClick={()=>setPage(p=>p-1)}>← Назад</Btn>
+            <Btn size="sm" disabled={page+1>=(data.totalPages||1)} onClick={()=>setPage(p=>p+1)}>Вперёд →</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- shell ----------
+function App() {
+  const [token,setToken] = useState(null);
+  const [me,setMe] = useState(null);
+  const [tab,setTab] = useState("dash");
+  const [toastState,setToastState] = useState({msg:"",tone:""});
+
+  const toast = useCallback((msg,tone="ok")=>{
+    setToastState({msg,tone});
+    setTimeout(()=>setToastState({msg:"",tone:""}),3500);
+  },[]);
+
+  const logout = useCallback(()=>{ setToken(null); setMe(null); setTab("dash"); },[]);
+  const api = useMemo(()=> token ? makeApi(API_BASE, token, logout) : null, [token,logout]);
+
+  if (!token) return <Login onLogin={(t,c)=>{setToken(t);setMe(c);}} />;
+
+  const isAdmin = me.role==="ADMIN";
+  const tabs = [
+    {k:"dash",label:"Дашборд",icon:"▤"},
+    {k:"users",label:"Пользователи",icon:"⚇"},
+    {k:"mod",label:"Модерация",icon:"⚐"},
+    {k:"comments",label:"Комментарии",icon:"❝"},
+  ];
+
+  return (
+    <div className="min-h-screen flex">
+      {/* sidebar */}
+      <aside className="w-60 shrink-0 border-r border-[var(--line)] bg-[var(--panel)] flex flex-col">
+        <div className="p-5 border-b border-[var(--line)] flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">◈</div>
+          <div>
+            <div className="font-extrabold tracking-tight leading-none">NoiseMap</div>
+            <div className="mono text-[10px] text-[var(--muted)] mt-0.5">admin console</div>
+          </div>
+        </div>
+        <nav className="p-3 space-y-1 flex-1">
+          {tabs.map(t=>(
+            <button key={t.k} onClick={()=>setTab(t.k)}
+              className={"w-full text-left px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-3 transition "+
+                (tab===t.k?"bg-emerald-500/15 text-emerald-300 border border-emerald-500/30":"text-[var(--muted)] hover:bg-[#21262d] border border-transparent")}>
+              <span className="opacity-70">{t.icon}</span>{t.label}
+            </button>
+          ))}
+        </nav>
+        <div className="p-3 border-t border-[var(--line)]">
+          <div className="px-3 py-2 mb-2">
+            <div className="text-sm font-semibold truncate">{me.displayName||me.email||"—"}</div>
+            <div className="mt-1"><Badge tone={isAdmin?"admin":"moderator"}>{me.role}</Badge></div>
+            <div className="mono text-[10px] text-[var(--muted)] mt-1">noisemap.duckdns.org</div>
+          </div>
+          <Btn tone="ghost" onClick={logout}>↩ Выйти</Btn>
+        </div>
+      </aside>
+
+      {/* main */}
+      <main className="flex-1 p-8 overflow-auto max-h-screen">
+        <div className="max-w-5xl mx-auto">
+          {tab==="dash" && <Dashboard api={api} toast={toast} />}
+          {tab==="users" && <Users api={api} me={me} toast={toast} />}
+          {tab==="mod" && <Moderation api={api} toast={toast} />}
+          {tab==="comments" && <Comments api={api} toast={toast} />}
+        </div>
+      </main>
+      <Toast msg={toastState.msg} tone={toastState.tone} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
