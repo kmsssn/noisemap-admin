@@ -27,17 +27,18 @@
   .map-svg { position:absolute; inset:0; width:100%; height:100%; opacity:.5; }
   .pulse {
     position:absolute; border-radius:9999px; transform:translate(-50%,-50%);
-    width:18px; height:18px; opacity:0;
-    animation:pulse 4s ease-out infinite;
+    width:16px; height:16px; opacity:0;
+    animation:pulse 5s ease-out infinite;
+    will-change:transform,opacity;
   }
   @keyframes pulse {
-    0%   { transform:translate(-50%,-50%) scale(.2); opacity:.9; }
-    70%  { opacity:.25; }
-    100% { transform:translate(-50%,-50%) scale(7); opacity:0; }
+    0%   { transform:translate(-50%,-50%) scale(.3); opacity:.7; }
+    70%  { opacity:.2; }
+    100% { transform:translate(-50%,-50%) scale(5); opacity:0; }
   }
   .pulse-dot {
     position:absolute; width:8px; height:8px; border-radius:9999px;
-    transform:translate(-50%,-50%); animation:dot 4s ease-out infinite;
+    transform:translate(-50%,-50%); animation:dot 5s ease-out infinite;
   }
   @keyframes dot { 0%,70%{opacity:1} 100%{opacity:.3} }
 </style>
@@ -178,17 +179,17 @@ const ConfirmModal = ({cfg,onClose}) => {
 // Фон логина: стилизованная карта (в духе OpenStreetMap) + пульсирующие точки шума.
 const MapBackground = () => {
   const colors = ["#10b981","#f59e0b","#ef4444"]; // тихо / средне / громко
-  const genPulses = () => Array.from({length:8}).map((_,i)=>({
-    x: 6 + Math.random()*88,
-    y: 8 + Math.random()*84,
+  const genPulses = () => Array.from({length:5}).map(()=>({
+    x: 8 + Math.random()*84,
+    y: 10 + Math.random()*80,
     c: colors[Math.floor(Math.random()*colors.length)],
-    d: Math.random()*3.5,
+    d: Math.random()*4,
     key: Math.random().toString(36).slice(2),
   }));
   const [pulses,setPulses] = useState(genPulses);
-  // Периодически пересоздаём точки в новых случайных местах
+  // Реже пересоздаём, чтобы не нагружать рендер
   useEffect(()=>{
-    const t = setInterval(()=>setPulses(genPulses()), 8000);
+    const t = setInterval(()=>setPulses(genPulses()), 15000);
     return ()=>clearInterval(t);
   },[]);
   return (
@@ -394,37 +395,33 @@ function Users({ api, me, toast, confirm }) {
     return d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
   };
 
-  // Поиск по userId: автоматически при вводе полного UUID (с задержкой, без кнопки).
-  const [searchResult,setSearchResult] = useState(null); // null = обычный список, [] = не найдено
+  // Поиск: текст (имя/email) фильтрует мгновенно по загруженным; полный UUID ищет на сервере.
+  const [searchResult,setSearchResult] = useState(null); // null = список/локальный фильтр, [] = не найдено по ID
   const isUUID = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
 
-  // Автопоиск: следим за q, дёргаем сервер только когда введён полный UUID.
+  // Серверный поиск только когда введён полный UUID.
   useEffect(()=>{
     const term = q.trim();
-    if (!isUUID(term)) { setSearchResult(null); return; } // не UUID — обычная фильтрация
+    if (!isUUID(term)) { setSearchResult(null); return; }
     let cancelled = false;
-    const timer = setTimeout(async ()=>{
+    (async ()=>{
       try {
         const u = await api.getUser(term);
         if (!cancelled) setSearchResult(u ? [u] : []);
       } catch(e) {
-        if (!cancelled) {
-          setSearchResult([]);
-          if (!String(e.message).includes("404") && !String(e.message).toLowerCase().includes("not found"))
-            toast(e.message,"error");
-        }
+        if (!cancelled) setSearchResult([]);
       }
-    }, 400); // debounce
-    return ()=>{ cancelled = true; clearTimeout(timer); };
+    })();
+    return ()=>{ cancelled = true; };
   },[q,api]);
 
   const clearSearch = () => { setQ(""); setSearchResult(null); };
 
-  // rows: результат серверного поиска (по UUID) ИЛИ локальный фильтр по email/имени
+  // rows: если введён UUID — серверный результат; иначе мгновенный локальный фильтр по имени/email.
   const rows = searchResult !== null
     ? searchResult
     : (data?.content||[]).filter(u =>
-        !q || (u.email+u.displayName).toLowerCase().includes(q.toLowerCase()));
+        !q || (u.email+" "+u.displayName).toLowerCase().includes(q.toLowerCase()));
 
   const isAdmin = me.role === "ADMIN";
 
@@ -434,13 +431,13 @@ function Users({ api, me, toast, confirm }) {
         <h2 className="text-xl font-bold">Пользователи</h2>
         <div className="flex gap-1.5 items-center">
           <input value={q} onChange={e=>setQ(e.target.value)}
-            placeholder="email, имя или userId…"
+            placeholder="имя, email или userId…"
             className="rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
-          {searchResult!==null && <Btn size="sm" tone="ghost" onClick={clearSearch}>Сброс</Btn>}
+          {q && <Btn size="sm" tone="ghost" onClick={clearSearch}>Сброс</Btn>}
         </div>
       </div>
       <p className="text-sm text-[var(--muted)] mb-5">
-        {isAdmin ? "Смена ролей и блокировка доступны. Вставьте userId — пользователь найдётся автоматически." : "Только просмотр — управление доступно ADMIN."}
+        {isAdmin ? "Смена ролей и блокировка доступны. Поиск по имени/почте — сразу; по userId — находит во всей базе." : "Только просмотр — управление доступно ADMIN."}
       </p>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
@@ -497,7 +494,7 @@ function Users({ api, me, toast, confirm }) {
           </tbody>
         </table>
       </Card>
-      {data && searchResult===null && (
+      {data && !q && (
         <div className="flex items-center justify-between mt-4 text-sm text-[var(--muted)]">
           <span>Всего: {data.totalElements} · стр. {page+1} из {data.totalPages||1}</span>
           <div className="flex gap-2">
@@ -506,8 +503,8 @@ function Users({ api, me, toast, confirm }) {
           </div>
         </div>
       )}
-      {searchResult!==null && (
-        <div className="mt-4 text-sm text-[var(--muted)]">Результат поиска по ID · <button onClick={clearSearch} className="text-emerald-400 hover:text-emerald-300">показать всех</button></div>
+      {q && (
+        <div className="mt-4 text-sm text-[var(--muted)]">Найдено: {rows.length} · <button onClick={clearSearch} className="text-emerald-400 hover:text-emerald-300">показать всех</button></div>
       )}
 
       {banTarget && (
