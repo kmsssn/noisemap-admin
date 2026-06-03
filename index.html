@@ -340,15 +340,17 @@ function Users({ api, me, toast, confirm }) {
   const [banReason,setBanReason] = useState("");
   const [banHours,setBanHours] = useState(0); // 0 = навсегда
 
-  const load = useCallback(async (p)=>{
-    setLoading(true);
+  // silent=true — тихое обновление (без экрана "загрузка…"), для refresh после действий
+  const load = useCallback(async (p, silent=false)=>{
+    if (!silent) setLoading(true);
     try { setData(await api.listUsers(p,20)); }
-    catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
+    catch(e){ toast(e.message,"error"); } finally{ if(!silent) setLoading(false); }
   },[api]);
   useEffect(()=>{ load(page); },[page]);
+  const refresh = useCallback(()=>load(page,true),[load,page]);
 
   const onRoleSelect = (u,role) => {
-    if (u.id===me.sub) { toast("Нельзя менять свою роль","error"); load(page); return; }
+    if (u.id===me.sub) { toast("Нельзя менять свою роль","error"); refresh(); return; }
     if (role===u.role) return;
     confirm({
       title: "Смена роли",
@@ -356,12 +358,12 @@ function Users({ api, me, toast, confirm }) {
       confirmLabel: "Сменить",
       tone: "blue",
       onConfirm: async () => {
-        try { await api.changeRole(u.id,role); toast("Роль обновлена: "+role); load(page); }
-        catch(e){ toast(e.message,"error"); load(page); }
+        try { await api.changeRole(u.id,role); toast("Роль обновлена: "+role); refresh(); }
+        catch(e){ toast(e.message,"error"); refresh(); }
       }
     });
     // возвращаем select в исходное состояние сразу — реальное изменение после подтверждения
-    load(page);
+    refresh();
   };
 
   const openBan = (u) => {
@@ -372,7 +374,7 @@ function Users({ api, me, toast, confirm }) {
     try {
       await api.setActive(banTarget.id, false, banReason, banHours>0?banHours:null);
       toast("Пользователь заблокирован");
-      setBanTarget(null); load(page);
+      setBanTarget(null); refresh();
     } catch(e){ toast(e.message,"error"); }
   };
   const unblock = (u) => {
@@ -383,7 +385,7 @@ function Users({ api, me, toast, confirm }) {
       confirmLabel: "Разблокировать",
       tone: "accent",
       onConfirm: async () => {
-        try { await api.setActive(u.id, true, null, null); toast("Разблокирован"); load(page); }
+        try { await api.setActive(u.id, true, null, null); toast("Разблокирован"); refresh(); }
         catch(e){ toast(e.message,"error"); }
       }
     });
@@ -549,10 +551,10 @@ function Moderation({ api, toast, confirm }) {
   const [comment,setComment] = useState({});
   const [status,setStatus] = useState("PENDING"); // PENDING | APPROVED | REJECTED | ALL
 
-  const load = useCallback(async (p,st)=>{
-    setLoading(true);
+  const load = useCallback(async (p,st,silent=false)=>{
+    if (!silent) setLoading(true);
     try { setData(await api.modQueue(p,20, st==="PENDING"?"":st)); }
-    catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
+    catch(e){ toast(e.message,"error"); } finally{ if(!silent) setLoading(false); }
   },[api]);
   useEffect(()=>{ load(page,status); },[page,status]);
 
@@ -561,7 +563,7 @@ function Moderation({ api, toast, confirm }) {
       await api.modReview(item.id, decision, comment[item.id]||"");
       toast(decision==="approve"?"Запись одобрена":"Запись отклонена");
       setComment(c=>{ const n={...c}; delete n[item.id]; return n; });
-      load(page,status);
+      load(page,status,true);
     } catch(e){ toast(e.message,"error"); }
   };
 
@@ -656,19 +658,20 @@ function Comments({ api, toast, confirm }) {
   const [loading,setLoading] = useState(true);
   const [q,setQ] = useState("");
 
-  const load = useCallback(async (p)=>{
-    setLoading(true);
+  const load = useCallback(async (p, silent=false)=>{
+    if (!silent) setLoading(true);
     try { setData(await api.listComments(p,20)); }
-    catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
+    catch(e){ toast(e.message,"error"); } finally{ if(!silent) setLoading(false); }
   },[api]);
   useEffect(()=>{ load(page); },[page]);
+  const refresh = useCallback(()=>load(page,true),[load,page]);
 
   const hide = async (c) => {
-    try { await api.hideComment(c.id); toast("Комментарий скрыт"); load(page); }
+    try { await api.hideComment(c.id); toast("Комментарий скрыт"); refresh(); }
     catch(e){ toast(e.message,"error"); }
   };
   const unhide = async (c) => {
-    try { await api.unhideComment(c.id); toast("Комментарий снова виден"); load(page); }
+    try { await api.unhideComment(c.id); toast("Комментарий снова виден"); refresh(); }
     catch(e){ toast(e.message,"error"); }
   };
   const remove = (c) => {
@@ -678,7 +681,7 @@ function Comments({ api, toast, confirm }) {
       confirmLabel: "Удалить",
       tone: "danger",
       onConfirm: async () => {
-        try { await api.deleteComment(c.id); toast("Комментарий удалён"); load(page); }
+        try { await api.deleteComment(c.id); toast("Комментарий удалён"); refresh(); }
         catch(e){ toast(e.message,"error"); }
       }
     });
