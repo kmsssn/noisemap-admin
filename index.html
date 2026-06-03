@@ -21,6 +21,25 @@
   .fade{animation:f .35s ease}
   @keyframes f{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   input,select,textarea{color-scheme:dark}
+
+  /* Анимированный фон логина: карта + пульсары */
+  .map-bg { position:absolute; inset:0; overflow:hidden; }
+  .map-svg { position:absolute; inset:0; width:100%; height:100%; opacity:.5; }
+  .pulse {
+    position:absolute; border-radius:9999px; transform:translate(-50%,-50%);
+    width:18px; height:18px; opacity:0;
+    animation:pulse 4s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { transform:translate(-50%,-50%) scale(.2); opacity:.9; }
+    70%  { opacity:.25; }
+    100% { transform:translate(-50%,-50%) scale(7); opacity:0; }
+  }
+  .pulse-dot {
+    position:absolute; width:8px; height:8px; border-radius:9999px;
+    transform:translate(-50%,-50%); animation:dot 4s ease-out infinite;
+  }
+  @keyframes dot { 0%,70%{opacity:1} 100%{opacity:.3} }
 </style>
 </head>
 <body>
@@ -29,6 +48,7 @@
 const { useState, useEffect, useCallback, useMemo } = React;
 const API_BASE = "https://noisemap.duckdns.org";
 
+// Хранилище токена: переживает перезагрузку страницы.
 const TOKEN_KEY = "noisemap_admin_token";
 const TAB_KEY = "noisemap_admin_tab";
 const saveToken = (t) => { try { localStorage.setItem(TOKEN_KEY, t); } catch {} };
@@ -77,9 +97,8 @@ function makeApi(baseUrl, token, onUnauthorized) {
     listUsers: (page=0,size=20) => req(`/api/v1/admin/users?page=${page}&size=${size}`),
     changeRole: (userId,role) => req(`/api/v1/admin/users/${userId}/role`,{method:"PUT",body:JSON.stringify({role})}),
     setActive: (userId,active,reason,durationHours) => req(`/api/v1/admin/users/${userId}/active`,{method:"PUT",body:JSON.stringify({active,reason,durationHours})}),
-    modQueue: (page=0,size=20) => req(`/api/v1/moderation/queue?page=${page}&size=${size}`),
+    modQueue: (page=0,size=20,status="") => req(`/api/v1/moderation/queue?page=${page}&size=${size}${status?`&status=${status}`:""}`),
     modReview: (id,decision,comment) => req(`/api/v1/moderation/queue/${id}/review`,{method:"PUT",body:JSON.stringify({decision,comment})}),
-    modAdd: (reason,details) => req("/api/v1/moderation/queue",{method:"POST",body:JSON.stringify({reason,details})}),
     modStats: () => req("/api/v1/moderation/stats"),
     listComments: (page=0,size=20) => req(`/api/v1/comments/moderation?page=${page}&size=${size}`),
     hideComment: (id) => req(`/api/v1/comments/${id}/hide`,{method:"PUT"}),
@@ -134,24 +153,80 @@ const Toast = ({msg,tone}) => !msg ? null :
   <div className={"fixed bottom-5 right-5 z-50 max-w-sm fade rounded-lg border px-4 py-3 text-sm shadow-xl "+
     (tone==="error"?"bg-rose-950 border-rose-700 text-rose-100":"bg-emerald-950 border-emerald-700 text-emerald-100")}>{msg}</div>;
 
-
+// Универсальная модалка подтверждения — единый стиль для всех действий.
+// cfg: { title, message, confirmLabel, tone, onConfirm } | null
 const ConfirmModal = ({cfg,onClose}) => {
   if (!cfg) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-      <Card className="w-full max-w-sm p-6 fade">
-        <h3 className="text-lg font-bold mb-2">{cfg.title}</h3>
-        <p className="text-sm text-[var(--muted)] mb-6 whitespace-pre-line">{cfg.message}</p>
-        <div className="flex gap-2 justify-end">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{background:"rgba(0,0,0,0.7)"}}>
+      <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[#1c2128] shadow-2xl fade overflow-hidden">
+        <div className="p-6">
+          <h3 className="text-lg font-bold text-white mb-2">{cfg.title}</h3>
+          <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{cfg.message}</p>
+        </div>
+        <div className="flex gap-2 justify-end px-6 py-4 bg-[#161b22] border-t border-[var(--line)]">
           <Btn tone="ghost" onClick={onClose}>Отмена</Btn>
           <Btn tone={cfg.tone||"accent"} onClick={()=>{ cfg.onConfirm(); onClose(); }}>{cfg.confirmLabel||"Подтвердить"}</Btn>
         </div>
-      </Card>
+      </div>
     </div>
   );
 };
 
 // ---------- login ----------
+const MapBackground = () => {
+  const pulses = [
+    {x:18,y:24,c:"#10b981",d:0},
+    {x:72,y:18,c:"#ef4444",d:1.2},
+    {x:42,y:58,c:"#f59e0b",d:0.6},
+    {x:84,y:66,c:"#10b981",d:2.1},
+    {x:28,y:78,c:"#ef4444",d:1.7},
+    {x:60,y:40,c:"#f59e0b",d:2.8},
+    {x:10,y:55,c:"#10b981",d:3.3},
+    {x:90,y:38,c:"#f59e0b",d:0.9},
+  ];
+  return (
+    <div className="map-bg">
+      <svg className="map-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <rect width="800" height="600" fill="#0c1320"/>
+        <path d="M40 60 Q120 30 200 80 T360 90 L340 200 Q220 230 120 200 T40 180 Z" fill="#14361f" opacity="0.7"/>
+        <ellipse cx="640" cy="460" rx="130" ry="90" fill="#14361f" opacity="0.6"/>
+        <ellipse cx="120" cy="470" rx="80" ry="60" fill="#14361f" opacity="0.5"/>
+        <path d="M-20 420 C150 380 260 470 420 430 S700 360 820 410" stroke="#1e3a5f" strokeWidth="18" fill="none" opacity="0.7"/>
+        <g stroke="#2a3548" strokeWidth="2" opacity="0.8">
+          <line x1="0" y1="120" x2="800" y2="100"/>
+          <line x1="0" y1="240" x2="800" y2="250"/>
+          <line x1="0" y1="360" x2="800" y2="350"/>
+          <line x1="0" y1="490" x2="800" y2="500"/>
+          <line x1="140" y1="0" x2="160" y2="600"/>
+          <line x1="320" y1="0" x2="330" y2="600"/>
+          <line x1="500" y1="0" x2="490" y2="600"/>
+          <line x1="660" y1="0" x2="670" y2="600"/>
+        </g>
+        <g stroke="#3d4a63" strokeWidth="5" opacity="0.9">
+          <line x1="0" y1="300" x2="800" y2="290"/>
+          <line x1="400" y1="0" x2="410" y2="600"/>
+        </g>
+        <g fill="#1a2433" opacity="0.6">
+          <rect x="180" y="140" width="40" height="30" rx="2"/>
+          <rect x="240" y="150" width="30" height="35" rx="2"/>
+          <rect x="540" y="160" width="45" height="28" rx="2"/>
+          <rect x="360" y="400" width="38" height="40" rx="2"/>
+          <rect x="700" y="200" width="35" height="30" rx="2"/>
+          <rect x="80" y="280" width="42" height="32" rx="2"/>
+        </g>
+      </svg>
+      <div className="absolute inset-0" style={{background:"radial-gradient(700px circle at 50% 50%, rgba(13,17,23,0.35), rgba(13,17,23,0.82))"}}/>
+      {pulses.map((p,i)=>(
+        <React.Fragment key={i}>
+          <span className="pulse" style={{left:p.x+"%",top:p.y+"%",background:p.c,animationDelay:p.d+"s"}}/>
+          <span className="pulse-dot" style={{left:p.x+"%",top:p.y+"%",background:p.c,animationDelay:p.d+"s",boxShadow:`0 0 8px ${p.c}`}}/>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
+
 function Login({ onLogin }) {
   const [email,setEmail] = useState("");
   const [password,setPassword] = useState("");
@@ -174,8 +249,8 @@ function Login({ onLogin }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0 opacity-30" style={{background:"radial-gradient(600px circle at 30% 20%, rgba(63,185,80,.15), transparent 60%), radial-gradient(500px circle at 70% 80%, rgba(88,166,255,.12), transparent 55%)"}}/>
-      <Card className="w-full max-w-md p-8 relative fade">
+      <MapBackground />
+      <Card className="w-full max-w-md p-8 relative z-10 fade shadow-2xl">
         <div className="flex items-center gap-3 mb-1">
           <div className="h-9 w-9 rounded-lg bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center overflow-hidden">
             <Logo size={26} />
@@ -204,7 +279,6 @@ function Login({ onLogin }) {
   );
 }
 
-// ---------- dashboard ----------
 function Dashboard({ api, toast }) {
   const [city,setCity] = useState(null);
   const [mod,setMod] = useState(null);
@@ -386,32 +460,33 @@ function Users({ api, me, toast, confirm }) {
       )}
 
       {banTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-          <Card className="w-full max-w-md p-6 fade">
-            <h3 className="text-lg font-bold mb-1">Блокировка пользователя</h3>
-            <p className="text-sm text-[var(--muted)] mb-4">{banTarget.displayName} · {banTarget.email}</p>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{background:"rgba(0,0,0,0.7)"}}>
+          <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[#1c2128] shadow-2xl fade overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-white mb-1">Блокировка пользователя</h3>
+              <p className="text-sm text-slate-400 mb-5">{banTarget.displayName} · {banTarget.email}</p>
 
-            <label className="block text-xs text-[var(--muted)] mb-1">Причина</label>
-            <textarea value={banReason} onChange={e=>setBanReason(e.target.value)} rows="3" maxLength="500"
-              placeholder="Например: спам, оскорбления, накрутка…"
-              className="w-full mb-4 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none resize-none" />
+              <label className="block text-xs text-slate-400 mb-1.5">Причина</label>
+              <textarea value={banReason} onChange={e=>setBanReason(e.target.value)} rows="3" maxLength="500"
+                placeholder="Например: спам, оскорбления, накрутка…"
+                className="w-full mb-4 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm text-white focus:border-emerald-500 outline-none resize-none" />
 
-            <label className="block text-xs text-[var(--muted)] mb-1">Срок</label>
-            <div className="grid grid-cols-4 gap-2 mb-5">
-              {[{h:1,l:"1 час"},{h:24,l:"1 сутки"},{h:168,l:"7 дней"},{h:0,l:"Навсегда"}].map(o=>(
-                <button key={o.h} onClick={()=>setBanHours(o.h)}
-                  className={"rounded-lg border px-2 py-2 text-xs font-semibold transition "+
-                    (banHours===o.h?"bg-rose-600/90 text-white border-rose-500":"bg-[#21262d] text-[var(--muted)] border-[var(--line)] hover:bg-[#2d333b]")}>
-                  {o.l}
-                </button>
-              ))}
+              <label className="block text-xs text-slate-400 mb-1.5">Срок</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[{h:1,l:"1 час"},{h:24,l:"1 сутки"},{h:168,l:"7 дней"},{h:0,l:"Навсегда"}].map(o=>(
+                  <button key={o.h} onClick={()=>setBanHours(o.h)}
+                    className={"rounded-lg border px-2 py-2 text-xs font-semibold transition "+
+                      (banHours===o.h?"bg-rose-600 text-white border-rose-500":"bg-[#21262d] text-slate-300 border-[var(--line)] hover:bg-[#2d333b]")}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
             </div>
-
-            <div className="flex gap-2 justify-end">
+            <div className="flex gap-2 justify-end px-6 py-4 bg-[#161b22] border-t border-[var(--line)]">
               <Btn tone="ghost" onClick={()=>setBanTarget(null)}>Отмена</Btn>
               <Btn tone="danger" onClick={confirmBan}>Заблокировать</Btn>
             </div>
-          </Card>
+          </div>
         </div>
       )}
     </div>
@@ -424,60 +499,79 @@ function Moderation({ api, toast, confirm }) {
   const [data,setData] = useState(null);
   const [loading,setLoading] = useState(true);
   const [comment,setComment] = useState({});
+  const [status,setStatus] = useState("PENDING"); // PENDING | APPROVED | REJECTED | ALL
 
-  const load = useCallback(async (p)=>{
+  const load = useCallback(async (p,st)=>{
     setLoading(true);
-    try { setData(await api.modQueue(p,20)); }
+    try { setData(await api.modQueue(p,20, st==="PENDING"?"":st)); }
     catch(e){ toast(e.message,"error"); } finally{ setLoading(false); }
   },[api]);
-  useEffect(()=>{ load(page); },[page]);
+  useEffect(()=>{ load(page,status); },[page,status]);
 
   const review = async (item,decision) => {
     try {
       await api.modReview(item.id, decision, comment[item.id]||"");
       toast(decision==="approve"?"Запись одобрена":"Запись отклонена");
       setComment(c=>{ const n={...c}; delete n[item.id]; return n; });
-      load(page);
+      load(page,status);
     } catch(e){ toast(e.message,"error"); }
   };
-  const addTest = () => {
-    confirm({
-      title: "Добавить запись в очередь",
-      message: "Создать тестовую запись в очереди модерации? Она появится со статусом PENDING — можно будет одобрить или отклонить.",
-      confirmLabel: "Добавить",
-      tone: "blue",
-      onConfirm: async () => {
-        try { await api.modAdd("manual","Добавлено вручную через админ-панель"); toast("Запись добавлена в очередь"); load(0); setPage(0); }
-        catch(e){ toast(e.message,"error"); }
-      }
-    });
-  };
+
   const reasonTone = r => r==="out_of_bounds"?"warn":r==="spam_pattern"?"bad":"muted";
+  const statusTone = s => s==="PENDING"?"warn":s==="APPROVED"?"ok":"bad";
+  const statusLabel = s => ({PENDING:"ожидает",APPROVED:"одобрено",REJECTED:"отклонено"}[s]||s);
+  const fmt = iso => iso ? iso.replace("T"," ").slice(0,19) : "—";
   const rows = data?.content||[];
+
+  const tabs = [
+    {k:"PENDING",l:"Ожидают"},
+    {k:"APPROVED",l:"Одобренные"},
+    {k:"REJECTED",l:"Отклонённые"},
+    {k:"ALL",l:"Все"},
+  ];
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="text-xl font-bold">Модерация</h2>
-        <Btn size="sm" tone="blue" onClick={addTest}>+ Добавить запись</Btn>
+      <h2 className="text-xl font-bold mb-1">Модерация</h2>
+      <p className="text-sm text-[var(--muted)] mb-4">История проверки записей. Approve / reject доступны для ожидающих.</p>
+
+      <div className="flex gap-1.5 mb-5 flex-wrap">
+        {tabs.map(t=>(
+          <button key={t.k} onClick={()=>{ setStatus(t.k); setPage(0); }}
+            className={"px-3 py-1.5 rounded-lg text-xs font-semibold border transition "+
+              (status===t.k
+                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                : "bg-[#21262d] text-[var(--muted)] border-[var(--line)] hover:bg-[#2d333b]")}>
+            {t.l}
+          </button>
+        ))}
       </div>
-      <p className="text-sm text-[var(--muted)] mb-5">Записи, помеченные автоматическими проверками. Approve / reject с комментарием.</p>
+
       <div className="space-y-3">
         {loading && <Card className="p-8 text-center text-[var(--muted)]">загрузка…</Card>}
-        {!loading && rows.length===0 && <Card className="p-8 text-center text-[var(--muted)]">Очередь пуста 🎉</Card>}
+        {!loading && rows.length===0 && <Card className="p-8 text-center text-[var(--muted)]">Записей нет</Card>}
         {!loading && rows.map(item=>(
           <Card key={item.id} className="p-4 fade">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <Badge tone={reasonTone(item.reason)}>{item.reason}</Badge>
-                  <Badge tone={item.status==="PENDING"?"warn":item.status==="APPROVED"?"ok":"bad"}>{item.status}</Badge>
+                  <Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>
                 </div>
                 <div className="text-sm">{item.details||"—"}</div>
-                <div className="mono text-[11px] text-[var(--muted)] mt-1">
-                  recording: {item.recordingId} · user: {item.userId}
+                <div className="mono text-[11px] text-[var(--muted)] mt-1">recording: {item.recordingId}</div>
+                <div className="mono text-[11px] text-[var(--muted)] flex items-center gap-1">
+                  user: {item.userId}
+                  <button onClick={()=>{navigator.clipboard?.writeText(item.userId); toast("ID скопирован");}}
+                    className="text-emerald-400 hover:text-emerald-300" title="копировать ID">⧉</button>
                 </div>
-                <div className="mono text-[11px] text-[var(--muted)]">flagged: {item.flaggedAt?item.flaggedAt.replace("T"," ").slice(0,19):"—"}</div>
+                <div className="mono text-[11px] text-[var(--muted)]">flagged: {fmt(item.flaggedAt)}</div>
+                {item.status!=="PENDING" && (
+                  <div className="mt-2 pt-2 border-t border-[var(--line)] text-[11px] text-[var(--muted)] space-y-0.5">
+                    <div className="mono">reviewed: {fmt(item.reviewedAt)}{item.reviewedBy?` · by ${String(item.reviewedBy).slice(0,8)}…`:""}</div>
+                    {item.reviewComment && <div className="text-slate-300">«{item.reviewComment}»</div>}
+                  </div>
+                )}
               </div>
               {item.status==="PENDING" && (
                 <div className="flex flex-col gap-2 w-full sm:w-64">
@@ -485,8 +579,8 @@ function Moderation({ api, toast, confirm }) {
                     placeholder="комментарий (необязательно)"
                     className="rounded-md bg-[#0d1117] border border-[var(--line)] px-2 py-1.5 text-xs focus:border-emerald-500 outline-none" />
                   <div className="flex gap-2">
-                    <Btn size="sm" tone="accent" onClick={()=>review(item,"approve")}>Approve</Btn>
-                    <Btn size="sm" tone="danger" onClick={()=>review(item,"reject")}>Reject</Btn>
+                    <Btn size="sm" tone="accent" onClick={()=>review(item,"approve")}>Одобрить</Btn>
+                    <Btn size="sm" tone="danger" onClick={()=>review(item,"reject")}>Отклонить</Btn>
                   </div>
                 </div>
               )}
@@ -579,6 +673,11 @@ function Comments({ api, toast, confirm }) {
                 </td>
                 <td className="px-4 py-3">
                   <div className="font-semibold">{c.displayName||"—"}</div>
+                  <div className="mono text-[10px] text-[var(--muted)] flex items-center gap-1">
+                    {(c.userId||"").slice(0,8)}…
+                    <button onClick={()=>{navigator.clipboard?.writeText(c.userId); toast("ID скопирован");}}
+                      className="text-emerald-400 hover:text-emerald-300" title="копировать полный ID">⧉</button>
+                  </div>
                 </td>
                 <td className="px-4 py-3 mono text-[11px] text-[var(--muted)] hidden md:table-cell">
                   {c.latitude!=null?c.latitude.toFixed(4):"—"}, {c.longitude!=null?c.longitude.toFixed(4):"—"}
