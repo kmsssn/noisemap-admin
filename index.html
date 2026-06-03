@@ -287,7 +287,8 @@ function Login({ onLogin }) {
           placeholder="••••••••" />
 
         {err && <div className="mb-4 text-sm rounded-lg border border-rose-700 bg-rose-950/60 px-3 py-2 text-rose-200">{err}</div>}
-        <Btn tone="accent" onClick={submit} disabled={busy || !email || !password}>{busy?"Вход…":"Войти"}</Btn>      </Card>
+        <Btn tone="accent" onClick={submit} disabled={busy || !email || !password}>{busy?"Вход…":"Войти"}</Btn>
+      </Card>
     </div>
   );
 }
@@ -393,28 +394,30 @@ function Users({ api, me, toast, confirm }) {
     return d.toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
   };
 
-  // Поиск по userId: если введён UUID — ищем конкретного юзера на сервере
-  // (эндпоинт GET /admin/users/{id} уже есть). Иначе — фильтр по email/имени.
+  // Поиск по userId: автоматически при вводе полного UUID (с задержкой, без кнопки).
   const [searchResult,setSearchResult] = useState(null); // null = обычный список, [] = не найдено
   const isUUID = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
 
-  const doSearch = async () => {
+  // Автопоиск: следим за q, дёргаем сервер только когда введён полный UUID.
+  useEffect(()=>{
     const term = q.trim();
-    if (!term) { setSearchResult(null); return; }
-    if (isUUID(term)) {
+    if (!isUUID(term)) { setSearchResult(null); return; } // не UUID — обычная фильтрация
+    let cancelled = false;
+    const timer = setTimeout(async ()=>{
       try {
         const u = await api.getUser(term);
-        setSearchResult(u ? [u] : []);
+        if (!cancelled) setSearchResult(u ? [u] : []);
       } catch(e) {
-        if (String(e.message).includes("404") || String(e.message).toLowerCase().includes("not found")) {
+        if (!cancelled) {
           setSearchResult([]);
-          toast("Пользователь с таким ID не найден","error");
-        } else { toast(e.message,"error"); }
+          if (!String(e.message).includes("404") && !String(e.message).toLowerCase().includes("not found"))
+            toast(e.message,"error");
+        }
       }
-    } else {
-      setSearchResult(null); // не UUID — обычная фильтрация ниже
-    }
-  };
+    }, 400); // debounce
+    return ()=>{ cancelled = true; clearTimeout(timer); };
+  },[q,api]);
+
   const clearSearch = () => { setQ(""); setSearchResult(null); };
 
   // rows: результат серверного поиска (по UUID) ИЛИ локальный фильтр по email/имени
@@ -429,16 +432,15 @@ function Users({ api, me, toast, confirm }) {
     <div>
       <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
         <h2 className="text-xl font-bold">Пользователи</h2>
-        <div className="flex gap-1.5">
-          <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doSearch()}
+        <div className="flex gap-1.5 items-center">
+          <input value={q} onChange={e=>setQ(e.target.value)}
             placeholder="email, имя или userId…"
             className="rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
-          <Btn size="sm" tone="blue" onClick={doSearch}>Найти</Btn>
           {searchResult!==null && <Btn size="sm" tone="ghost" onClick={clearSearch}>Сброс</Btn>}
         </div>
       </div>
       <p className="text-sm text-[var(--muted)] mb-5">
-        {isAdmin ? "Смена ролей и блокировка доступны. Поиск по userId находит пользователя во всей базе." : "Только просмотр — управление доступно ADMIN."}
+        {isAdmin ? "Смена ролей и блокировка доступны. Вставьте userId — пользователь найдётся автоматически." : "Только просмотр — управление доступно ADMIN."}
       </p>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
