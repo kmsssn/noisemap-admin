@@ -12,8 +12,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0d1117; --panel:#161b22; --line:#272e3a; --accent:#10b981; --accent2:#34d399; --text:#e6edf3; --muted:#8b949e; }
-  body { font-family:'Manrope',system-ui,sans-serif; background:var(--bg); color:var(--text); margin:0; }
+  :root { --bg:#0d1117; --panel:#161b22; --line:#272e3a; --accent:#10b981; --accent2:#34d399; --text:#e6edf3; --muted:#8b949e; --input:#0d1117; --hover:#1c2230; --thead:#0d1117; }
+  :root[data-theme="light"] { --bg:#f4f6f8; --panel:#ffffff; --line:#e2e8f0; --accent:#059669; --accent2:#10b981; --text:#1a2433; --muted:#64748b; --input:#f1f5f9; --hover:#f1f5f9; --thead:#f8fafc; }
+  body { font-family:'Manrope',system-ui,sans-serif; background:var(--bg); color:var(--text); margin:0; transition:background .25s,color .25s; }
   .mono { font-family:'Space Mono',monospace; }
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:#30363d;border-radius:6px}
@@ -44,6 +45,10 @@
 </style>
 </head>
 <body>
+<script>
+  // Применяем сохранённую тему сразу, до рендера — чтобы не мигало
+  try { document.documentElement.setAttribute("data-theme", localStorage.getItem("noisemap_admin_theme") || "dark"); } catch(e){}
+</script>
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useMemo } = React;
@@ -57,6 +62,14 @@ const loadToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch 
 const clearToken = () => { try { localStorage.removeItem(TOKEN_KEY); } catch {} };
 const saveTab = (t) => { try { localStorage.setItem(TAB_KEY, t); } catch {} };
 const loadTab = () => { try { return localStorage.getItem(TAB_KEY) || "dash"; } catch { return "dash"; } };
+const THEME_KEY = "noisemap_admin_theme";
+const loadTheme = () => { try { return localStorage.getItem(THEME_KEY) || "dark"; } catch { return "dark"; } };
+const applyTheme = (t) => {
+  try {
+    document.documentElement.setAttribute("data-theme", t);
+    localStorage.setItem(THEME_KEY, t);
+  } catch {}
+};
 
 function decodeJwt(token) {
   try {
@@ -142,11 +155,11 @@ const Logo = ({size=32}) => (
   </svg>
 );
 const Btn = ({children,onClick,tone="default",disabled,size="md"}) => {
-  const tones = { default:"bg-[#21262d] hover:bg-[#2d333b] text-[var(--text)] border-[var(--line)]",
+  const tones = { default:"bg-[var(--hover)] hover:bg-[var(--line)] text-[var(--text)] border-[var(--line)]",
     accent:"bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500",
     blue:"bg-sky-600 hover:bg-sky-500 text-white border-sky-500",
     danger:"bg-rose-600/90 hover:bg-rose-500 text-white border-rose-500",
-    ghost:"bg-transparent hover:bg-[#21262d] text-[var(--muted)] border-transparent" };
+    ghost:"bg-transparent hover:bg-[var(--hover)] text-[var(--muted)] border-transparent" };
   const sz = size==="sm" ? "text-xs px-2.5 py-1" : "text-sm px-3.5 py-2";
   return <button onClick={onClick} disabled={disabled}
     className={`rounded-lg border font-semibold transition ${sz} ${tones[tone]} disabled:opacity-40 disabled:cursor-not-allowed`}>{children}</button>;
@@ -161,12 +174,12 @@ const ConfirmModal = ({cfg,onClose}) => {
   if (!cfg) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{background:"rgba(0,0,0,0.7)"}}>
-      <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[#1c2128] shadow-2xl fade overflow-hidden">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--panel)] shadow-2xl fade overflow-hidden">
         <div className="p-6">
-          <h3 className="text-lg font-bold text-white mb-2">{cfg.title}</h3>
-          <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{cfg.message}</p>
+          <h3 className="text-lg font-bold text-[var(--text)] mb-2">{cfg.title}</h3>
+          <p className="text-sm text-[var(--muted)] leading-relaxed whitespace-pre-line">{cfg.message}</p>
         </div>
-        <div className="flex gap-2 justify-end px-6 py-4 bg-[#161b22] border-t border-[var(--line)]">
+        <div className="flex gap-2 justify-end px-6 py-4 bg-[var(--thead)] border-t border-[var(--line)]">
           <Btn tone="ghost" onClick={onClose}>Отмена</Btn>
           <Btn tone={cfg.tone||"accent"} onClick={()=>{ cfg.onConfirm(); onClose(); }}>{cfg.confirmLabel||"Подтвердить"}</Btn>
         </div>
@@ -279,16 +292,17 @@ function Login({ onLogin }) {
 
         <label className="block text-xs text-[var(--muted)] mb-1">Email</label>
         <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
-          className="w-full mb-4 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none"
+          className="w-full mb-4 rounded-lg bg-[var(--input)] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none"
           placeholder="admin@example.com" />
 
         <label className="block text-xs text-[var(--muted)] mb-1">Пароль</label>
         <input type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
-          className="w-full mb-5 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none"
+          className="w-full mb-5 rounded-lg bg-[var(--input)] border border-[var(--line)] px-3 py-2 text-sm focus:border-emerald-500 outline-none"
           placeholder="••••••••" />
 
         {err && <div className="mb-4 text-sm rounded-lg border border-rose-700 bg-rose-950/60 px-3 py-2 text-rose-200">{err}</div>}
         <Btn tone="accent" onClick={submit} disabled={busy || !email || !password}>{busy?"Вход…":"Войти"}</Btn>
+        <div className="mono text-[10px] text-[var(--muted)] mt-4 text-center">API: noisemap.duckdns.org</div>
       </Card>
     </div>
   );
@@ -434,7 +448,7 @@ function Users({ api, me, toast, confirm }) {
         <div className="flex gap-1.5 items-center">
           <input value={q} onChange={e=>setQ(e.target.value)}
             placeholder="имя, email или userId…"
-            className="rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
+            className="rounded-lg bg-[var(--input)] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
           {q && <Btn size="sm" tone="ghost" onClick={clearSearch}>Сброс</Btn>}
         </div>
       </div>
@@ -443,7 +457,7 @@ function Users({ api, me, toast, confirm }) {
       </p>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-[#0d1117] text-[var(--muted)] text-xs uppercase tracking-wide">
+          <thead className="bg-[var(--input)] text-[var(--muted)] text-xs uppercase tracking-wide">
             <tr>
               <th className="text-left px-4 py-3 font-medium">Пользователь</th>
               <th className="text-left px-4 py-3 font-medium">Роль</th>
@@ -456,7 +470,7 @@ function Users({ api, me, toast, confirm }) {
             {loading && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">загрузка…</td></tr>}
             {!loading && rows.length===0 && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">нет записей</td></tr>}
             {!loading && rows.map(u=>(
-              <tr key={u.id} className="border-t border-[var(--line)] hover:bg-[#1c2230]">
+              <tr key={u.id} className="border-t border-[var(--line)] hover:bg-[var(--hover)]">
                 <td className="px-4 py-3">
                   <div className="font-semibold">{u.displayName||"—"}</div>
                   <div className="mono text-[11px] text-[var(--muted)]">{u.email}</div>
@@ -477,7 +491,7 @@ function Users({ api, me, toast, confirm }) {
                   <div className="flex items-center gap-1.5 justify-end flex-wrap">
                     {isAdmin && u.id!==me.sub && (
                       <select value={u.role} onChange={e=>onRoleSelect(u,e.target.value)}
-                        className="rounded-md bg-[#0d1117] border border-[var(--line)] px-2 py-1 text-xs focus:border-emerald-500 outline-none">
+                        className="rounded-md bg-[var(--input)] border border-[var(--line)] px-2 py-1 text-xs focus:border-emerald-500 outline-none">
                         <option value="USER">USER</option>
                         <option value="MODERATOR">MODERATOR</option>
                         <option value="ADMIN">ADMIN</option>
@@ -511,28 +525,28 @@ function Users({ api, me, toast, confirm }) {
 
       {banTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{background:"rgba(0,0,0,0.7)"}}>
-          <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[#1c2128] shadow-2xl fade overflow-hidden">
+          <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--panel)] shadow-2xl fade overflow-hidden">
             <div className="p-6">
-              <h3 className="text-lg font-bold text-white mb-1">Блокировка пользователя</h3>
-              <p className="text-sm text-slate-400 mb-5">{banTarget.displayName} · {banTarget.email}</p>
+              <h3 className="text-lg font-bold text-[var(--text)] mb-1">Блокировка пользователя</h3>
+              <p className="text-sm text-[var(--muted)] mb-5">{banTarget.displayName} · {banTarget.email}</p>
 
-              <label className="block text-xs text-slate-400 mb-1.5">Причина</label>
+              <label className="block text-xs text-[var(--muted)] mb-1.5">Причина</label>
               <textarea value={banReason} onChange={e=>setBanReason(e.target.value)} rows="3" maxLength="500"
                 placeholder="Например: спам, оскорбления, накрутка…"
-                className="w-full mb-4 rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-2 text-sm text-white focus:border-emerald-500 outline-none resize-none" />
+                className="w-full mb-4 rounded-lg bg-[var(--input)] border border-[var(--line)] px-3 py-2 text-sm text-[var(--text)] focus:border-emerald-500 outline-none resize-none" />
 
-              <label className="block text-xs text-slate-400 mb-1.5">Срок</label>
+              <label className="block text-xs text-[var(--muted)] mb-1.5">Срок</label>
               <div className="grid grid-cols-4 gap-2">
                 {[{h:1,l:"1 час"},{h:24,l:"1 сутки"},{h:168,l:"7 дней"},{h:0,l:"Навсегда"}].map(o=>(
                   <button key={o.h} onClick={()=>setBanHours(o.h)}
                     className={"rounded-lg border px-2 py-2 text-xs font-semibold transition "+
-                      (banHours===o.h?"bg-rose-600 text-white border-rose-500":"bg-[#21262d] text-slate-300 border-[var(--line)] hover:bg-[#2d333b]")}>
+                      (banHours===o.h?"bg-rose-600 text-white border-rose-500":"bg-[var(--hover)] text-slate-300 border-[var(--line)] hover:bg-[var(--line)]")}>
                     {o.l}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="flex gap-2 justify-end px-6 py-4 bg-[#161b22] border-t border-[var(--line)]">
+            <div className="flex gap-2 justify-end px-6 py-4 bg-[var(--thead)] border-t border-[var(--line)]">
               <Btn tone="ghost" onClick={()=>setBanTarget(null)}>Отмена</Btn>
               <Btn tone="danger" onClick={confirmBan}>Заблокировать</Btn>
             </div>
@@ -591,7 +605,7 @@ function Moderation({ api, toast, confirm }) {
             className={"px-3 py-1.5 rounded-lg text-xs font-semibold border transition "+
               (status===t.k
                 ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
-                : "bg-[#21262d] text-[var(--muted)] border-[var(--line)] hover:bg-[#2d333b]")}>
+                : "bg-[var(--hover)] text-[var(--muted)] border-[var(--line)] hover:bg-[var(--line)]")}>
             {t.l}
           </button>
         ))}
@@ -619,7 +633,7 @@ function Moderation({ api, toast, confirm }) {
                 {item.status!=="PENDING" && (
                   <div className="mt-2 pt-2 border-t border-[var(--line)] text-[11px] text-[var(--muted)] space-y-0.5">
                     <div className="mono">reviewed: {fmt(item.reviewedAt)}{item.reviewedByName?` · ${item.reviewedByName}`:(item.reviewedBy?` · ${String(item.reviewedBy).slice(0,8)}…`:"")}</div>
-                    {item.reviewComment && <div className="text-slate-300">«{item.reviewComment}»</div>}
+                    {item.reviewComment && <div className="text-[var(--text)]">«{item.reviewComment}»</div>}
                   </div>
                 )}
               </div>
@@ -627,7 +641,7 @@ function Moderation({ api, toast, confirm }) {
                 <div className="flex flex-col gap-2 w-full sm:w-64">
                   <input value={comment[item.id]||""} onChange={e=>setComment(c=>({...c,[item.id]:e.target.value}))}
                     placeholder="комментарий (необязательно)"
-                    className="rounded-md bg-[#0d1117] border border-[var(--line)] px-2 py-1.5 text-xs focus:border-emerald-500 outline-none" />
+                    className="rounded-md bg-[var(--input)] border border-[var(--line)] px-2 py-1.5 text-xs focus:border-emerald-500 outline-none" />
                   <div className="flex gap-2">
                     <Btn size="sm" tone="accent" onClick={()=>review(item,"approve")}>Одобрить</Btn>
                     <Btn size="sm" tone="danger" onClick={()=>review(item,"reject")}>Отклонить</Btn>
@@ -696,12 +710,12 @@ function Comments({ api, toast, confirm }) {
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-xl font-bold">Комментарии</h2>
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="поиск по тексту/автору…"
-          className="rounded-lg bg-[#0d1117] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
+          className="rounded-lg bg-[var(--input)] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
       </div>
       <p className="text-sm text-[var(--muted)] mb-5">Все комментарии на карте. «Скрыть» убирает с карты обратимо (можно показать снова). «Удалить» — необратимо.</p>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-[#0d1117] text-[var(--muted)] text-xs uppercase tracking-wide">
+          <thead className="bg-[var(--input)] text-[var(--muted)] text-xs uppercase tracking-wide">
             <tr>
               <th className="text-left px-4 py-3 font-medium">Текст</th>
               <th className="text-left px-4 py-3 font-medium">Автор</th>
@@ -714,7 +728,7 @@ function Comments({ api, toast, confirm }) {
             {loading && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">загрузка…</td></tr>}
             {!loading && rows.length===0 && <tr><td colSpan="5" className="px-4 py-10 text-center text-[var(--muted)]">нет комментариев</td></tr>}
             {!loading && rows.map(c=>(
-              <tr key={c.id} className={"border-t border-[var(--line)] hover:bg-[#1c2230] align-top "+(c.hidden?"opacity-50":"")}>
+              <tr key={c.id} className={"border-t border-[var(--line)] hover:bg-[var(--hover)] align-top "+(c.hidden?"opacity-50":"")}>
                 <td className="px-4 py-3 max-w-sm">
                   <div className="whitespace-pre-wrap break-words">{c.text}</div>
                   <div className="flex items-center gap-2 mt-1">
@@ -779,6 +793,9 @@ function App() {
   });
   const [tab,setTabState] = useState(()=>loadTab());
   const setTab = useCallback((t)=>{ setTabState(t); saveTab(t); },[]);
+  const [theme,setThemeState] = useState(()=>loadTheme());
+  useEffect(()=>{ applyTheme(theme); },[theme]);
+  const toggleTheme = useCallback(()=>setThemeState(t=>t==="dark"?"light":"dark"),[]);
   const [toastState,setToastState] = useState({msg:"",tone:""});
   const [confirmCfg,setConfirmCfg] = useState(null);
 
@@ -818,7 +835,7 @@ function App() {
           {tabs.map(t=>(
             <button key={t.k} onClick={()=>setTab(t.k)}
               className={"w-full text-left px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-3 transition "+
-                (tab===t.k?"bg-emerald-500/15 text-emerald-300 border border-emerald-500/30":"text-[var(--muted)] hover:bg-[#21262d] border border-transparent")}>
+                (tab===t.k?"bg-emerald-500/15 text-emerald-300 border border-emerald-500/30":"text-[var(--muted)] hover:bg-[var(--hover)] border border-transparent")}>
               <span className="opacity-70">{t.icon}</span>{t.label}
             </button>
           ))}
@@ -829,7 +846,13 @@ function App() {
             <div className="mt-1"><Badge tone={isAdmin?"admin":"moderator"}>{me.role}</Badge></div>
             <div className="mono text-[10px] text-[var(--muted)] mt-1">noisemap.duckdns.org</div>
           </div>
-          <Btn tone="ghost" onClick={logout}>↩ Выйти</Btn>
+          <div className="flex gap-2">
+            <Btn tone="ghost" onClick={logout}>↩ Выйти</Btn>
+            <button onClick={toggleTheme} title="Сменить тему"
+              className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm hover:bg-[var(--hover)] transition">
+              {theme==="dark" ? "☀" : "☾"}
+            </button>
+          </div>
         </div>
       </aside>
 
