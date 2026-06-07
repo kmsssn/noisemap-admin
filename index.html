@@ -9,6 +9,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { darkMode: ['selector', '[data-theme="dark"]'] };
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -124,14 +127,18 @@ function makeApi(baseUrl, token, onUnauthorized) {
 
 // ---------- small ui ----------
 const Badge = ({children,tone="muted"}) => {
-  const map = { admin:"bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    moderator:"bg-sky-500/15 text-sky-300 border-sky-500/30",
-    user:"bg-slate-500/15 text-slate-300 border-slate-500/30",
-    ok:"bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    warn:"bg-amber-500/15 text-amber-300 border-amber-500/30",
-    bad:"bg-rose-500/15 text-rose-300 border-rose-500/30",
-    muted:"bg-slate-500/10 text-slate-400 border-slate-600/40" };
-  return <span className={"mono text-[11px] px-2 py-0.5 rounded border "+(map[tone]||map.muted)}>{children}</span>;
+  const map = { admin:"bg-emerald-500/20 text-emerald-700 border-emerald-500/50",
+    moderator:"bg-sky-500/20 text-sky-700 border-sky-500/50",
+    user:"bg-slate-400/20 text-slate-600 border-slate-400/50",
+    ok:"bg-emerald-500/20 text-emerald-700 border-emerald-500/50",
+    warn:"bg-amber-500/20 text-amber-700 border-amber-500/50",
+    bad:"bg-rose-500/20 text-rose-700 border-rose-500/50",
+    muted:"bg-slate-400/20 text-slate-600 border-slate-400/50" };
+  const mapDark = { admin:"dark:text-emerald-300",
+    moderator:"dark:text-sky-300", user:"dark:text-slate-300",
+    ok:"dark:text-emerald-300", warn:"dark:text-amber-300",
+    bad:"dark:text-rose-300", muted:"dark:text-slate-400" };
+  return <span className={"mono text-[11px] px-2 py-0.5 rounded border font-bold "+(map[tone]||map.muted)+" "+(mapDark[tone]||mapDark.muted)}>{children}</span>;
 };
 const Card = ({children,className="",onClick}) => <div onClick={onClick} className={"rounded-xl border border-[var(--line)] bg-[var(--panel)] "+className}>{children}</div>;
 const Logo = ({size=32}) => (
@@ -846,18 +853,16 @@ function App() {
             <div className="mt-1"><Badge tone={isAdmin?"admin":"moderator"}>{me.role}</Badge></div>
             <div className="mono text-[10px] text-[var(--muted)] mt-1">noisemap.duckdns.org</div>
           </div>
-          <div className="flex gap-2">
-            <Btn tone="ghost" onClick={logout}>↩ Выйти</Btn>
-            <button onClick={toggleTheme} title="Сменить тему"
-              className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm hover:bg-[var(--hover)] transition">
-              {theme==="dark" ? "☀" : "☾"}
-            </button>
-          </div>
+          <Btn tone="ghost" onClick={logout}>↩ Выйти</Btn>
         </div>
       </aside>
 
       {/* main */}
-      <main className="flex-1 p-8 overflow-auto max-h-screen">
+      <main className="flex-1 p-8 overflow-auto max-h-screen relative">
+        <button onClick={toggleTheme} title="Сменить тему"
+          className="fixed top-4 right-5 z-40 rounded-lg border border-[var(--line)] bg-[var(--panel)] w-9 h-9 flex items-center justify-center text-base hover:bg-[var(--hover)] transition shadow">
+          {theme==="dark" ? "☀" : "☾"}
+        </button>
         <div className="max-w-5xl mx-auto">
           {tab==="dash" && <Dashboard api={api} toast={toast} />}
           {tab==="users" && <Users api={api} me={me} toast={toast} confirm={confirm} />}
