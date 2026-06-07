@@ -460,7 +460,7 @@ function Users({ api, me, toast, confirm }) {
         </div>
       </div>
       <p className="text-sm text-[var(--muted)] mb-5">
-        {isAdmin ? "Смена ролей и блокировка доступны. Поиск по имени/почте — сразу; по userId — находит во всей базе." : "Только просмотр — управление доступно ADMIN."}
+        {isAdmin ? "Смена ролей и блокировка доступны." : "Только просмотр — управление доступно ADMIN."}
       </p>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
@@ -604,7 +604,7 @@ function Moderation({ api, toast, confirm }) {
   return (
     <div>
       <h2 className="text-xl font-bold mb-1">Модерация</h2>
-      <p className="text-sm text-[var(--muted)] mb-4">История проверки записей. Approve / reject доступны для ожидающих.</p>
+      <p className="text-sm text-[var(--muted)] mb-4">История проверки записей. </p>
 
       <div className="flex gap-1.5 mb-5 flex-wrap">
         {tabs.map(t=>(
@@ -719,7 +719,7 @@ function Comments({ api, toast, confirm }) {
         <input value={q} onChange={e=>setQ(e.target.value)} placeholder="поиск по тексту/автору…"
           className="rounded-lg bg-[var(--input)] border border-[var(--line)] px-3 py-1.5 text-sm w-64 focus:border-emerald-500 outline-none" />
       </div>
-      <p className="text-sm text-[var(--muted)] mb-5">Все комментарии на карте. «Скрыть» убирает с карты обратимо (можно показать снова). «Удалить» — необратимо.</p>
+      <p className="text-sm text-[var(--muted)] mb-5">Все комментарии на карте. </p>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-[var(--input)] text-[var(--muted)] text-xs uppercase tracking-wide">
